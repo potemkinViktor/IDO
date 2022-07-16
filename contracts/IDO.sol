@@ -33,9 +33,6 @@ contract IDO {
     uint public constant secondReward = 3 * 10**18; // 3 USDT in decimals
     address public owner;
 
-    // event Sold(address buyer, uint256 amount);
-    // event FirstUnlock(address buyer, uint256 lockedAmount, uint256 narfexPrice, uint256 unlockedAmount);
-    // event UnlockTokensToBuyers(address buyer, uint256 amount); //after 60 days
     event AddedToWhitelist(address buyer);
     event NewUser(address user);
     event NewPartner(address partner);
