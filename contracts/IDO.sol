@@ -12,6 +12,10 @@ interface IERC20 {
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
 }
 
+interface IERC721 {
+    function safeTransferFrom(address from, address to, uint256 tokenId) external;
+}
+
 contract IDO {
 
     // user in IDO
@@ -25,14 +29,17 @@ contract IDO {
     }
 
     mapping (address => User) public user;
+    uint256[] public idNFTs;
 
     IERC20 public USDT; // USDT address
     IERC20 public YH; // YH address
+    IERC721 public NFT; // NFT contract address
     uint public constant userDeposit = 100 * 10**18; // 100 USDT in decimals
     uint public constant partnerDeposit = 300 * 10**18; // 300 USDT in decimals
     uint public constant firstReward = 5 * 10*188; // 5 USDT in decimals
     uint public constant secondReward = 3 * 10**18; // 3 USDT in decimals
     uint public constant amountYH = 10000 * 10**18; // bought amount in IDO
+    uint256 public id;
     uint256 public startTimeIDO;
     uint256 public endTimeIDO;
     address public owner;
@@ -48,10 +55,13 @@ contract IDO {
     constructor (
         IERC20 _USDT,
         IERC20 _YH,
+        IERC721 _NFT,
         address _owner
         ) {
+
         USDT = _USDT;
         YH = _YH;
+        NFT = _NFT;
         owner = _owner;
     }
 
@@ -67,20 +77,32 @@ contract IDO {
         _;
     }
 
-    /// @notice only participated users can get NFT
+    /// @notice only partners users can get NFT
     modifier onlyPartner() {
         require(isPartner(msg.sender), "You are not a partner");
         _;
     }
 
+    /// @notice only collected users can get NFT
+    modifier onlyCollected() {
+        require(isCollected(msg.sender), "You are not a partner");
+        _;
+    }
+
     /// @notice starting IDO
     /// @param amountOfSeconds period of IDO in seconds (since point of time startTimeIDO)
-    function startIDO(uint256 amountOfSeconds) public onlyOwner {
+    function startIDO(uint256 amountOfSeconds, uint256[] memory _idNFTs) public onlyOwner {
         require(!isIDOStarted, "IDO already started");
 
         startTimeIDO = block.timestamp;
         isIDOStarted = true;
         endTimeIDO = startTimeIDO + amountOfSeconds;
+
+        uint256 length = _idNFTs.length;
+        for (uint256 i = 0; i < length;) {
+            idNFTs.push(_idNFTs[i]);
+            unchecked { ++i; }
+        }
     }
 
     /// @notice let all users to participate in IDO
@@ -88,13 +110,13 @@ contract IDO {
     function participate(address _addressPartner) public {
         address _msgSender = msg.sender;
         require(isIDOStarted, "Wait for IDO starting");
-        require(block.timestamp <= endTimeIDO, "IDO ended");
+        require(block.timestamp < endTimeIDO, "IDO ended");
         require(!isParticipated(_msgSender), "You can participate only once");
 
-        uint256 _userDeposit;
+        uint256 _userDeposit = userDeposit;
         // Check referal levels
         if (_addressPartner > address(0)) { // Check first referal level
-            _userDeposit = userDeposit - firstReward;
+            _userDeposit -= firstReward;
             ++user[_addressPartner].amountOfReferals;
 
             if (user[_addressPartner].amountOfReferals == 10 && user[_addressPartner].partner) {
@@ -107,7 +129,7 @@ contract IDO {
             // Check second referal level
             address _secondPartner = getSecondPartner(_addressPartner);
             if (_secondPartner > address(0)) {
-                _userDeposit = userDeposit - secondReward;
+                _userDeposit -= secondReward;
                 USDT.transferFrom(_msgSender, _secondPartner, secondReward);
                 emit TransferToPartner(_secondPartner, secondReward);
             }
@@ -122,6 +144,7 @@ contract IDO {
     /// @notice let users to get NFT in IDO after participate
     function becomePartner() public onlyParicipated{
         address _msgSender = msg.sender;
+        require(!isPartner(_msgSender), "You are already a partner");
 
         user[_msgSender].partner = true;
         USDT.transferFrom(_msgSender, address(this), partnerDeposit);
@@ -130,10 +153,14 @@ contract IDO {
 
     /// @notice transfering 300 USDT back
     /// @param _userAddress address of partner for transfer
-    function getBackDeposit(address _userAddress) private{
+    function getBackDeposit(address _userAddress) private {
         require(!isCollected(_userAddress), "You got your deposit back");
         
+        user[_userAddress].collected = true;
         USDT.transfer(_userAddress, partnerDeposit);
+        NFT.safeTransferFrom(address(NFT), _userAddress, idNFTs[id]);
+        require(id++ >= idNFTs.length, "Not enough id NFTs to transfer");
+        ++id;
         emit DepositReturned(_userAddress);
     }
 
@@ -146,7 +173,7 @@ contract IDO {
     /// @notice only participated users can get YH amount amount 
     function getYH() public onlyParicipated {
         address _msgSender = msg.sender;
-        require(!user[_msgSender].tokensTransfered, "You can get YH tokens once");
+        require(!isTokensTransfered(_msgSender), "You can get YH tokens once");
         require(getBalanseYH() >= amountYH, "Not enough YH balance");
 
         user[_msgSender].tokensTransfered = true;
@@ -168,6 +195,12 @@ contract IDO {
     /// @param _addressPartner address of second referal
     function getSecondPartner(address _addressPartner) public view returns(address) {
         return user[_addressPartner].addressPartner;
+    }
+
+    /// @notice check if tokensTransfered
+    /// @param _userAddress address of user
+    function isTokensTransfered(address _userAddress) public view returns(bool) {
+        return user[_userAddress].tokensTransfered;
     }
 
     /// @notice check if the user participated
