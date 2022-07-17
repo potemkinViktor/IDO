@@ -39,10 +39,10 @@ contract IDO {
     uint public constant firstReward = 5 * 10*188; // 5 USDT in decimals
     uint public constant secondReward = 3 * 10**18; // 3 USDT in decimals
     uint public constant amountYH = 10000 * 10**18; // bought amount in IDO
-    uint256 public id;
-    uint256 public startTimeIDO;
-    uint256 public endTimeIDO;
-    address public owner;
+    uint256 public id; // counter for idNFTs
+    uint256 public startTimeIDO; // timestamp of starting IDO
+    uint256 public endTimeIDO; // timestamp of ending IDO
+    address public owner; // owner
     bool public isIDOStarted;
 
     event AddedToWhitelist(address buyer);
@@ -91,6 +91,7 @@ contract IDO {
 
     /// @notice starting IDO
     /// @param amountOfSeconds period of IDO in seconds (since point of time startTimeIDO)
+    /// @param _idNFTs array of idNFTs
     function startIDO(uint256 amountOfSeconds, uint256[] memory _idNFTs) public onlyOwner {
         require(!isIDOStarted, "IDO already started");
 
@@ -151,7 +152,7 @@ contract IDO {
         emit NewPartner(_msgSender);
     }
 
-    /// @notice transfering 300 USDT back
+    /// @notice transfering 300 USDT back and transfering NFT
     /// @param _userAddress address of partner for transfer
     function getBackDeposit(address _userAddress) private {
         require(!isCollected(_userAddress), "You got your deposit back");
@@ -159,7 +160,7 @@ contract IDO {
         user[_userAddress].collected = true;
         USDT.transfer(_userAddress, partnerDeposit);
         NFT.safeTransferFrom(address(NFT), _userAddress, idNFTs[id]);
-        require(id++ >= idNFTs.length, "Not enough id NFTs to transfer");
+        require(id++ >= idNFTs.length, "Not enough idNFTs to transfer");
         ++id;
         emit DepositReturned(_userAddress);
     }
