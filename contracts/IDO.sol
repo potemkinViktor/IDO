@@ -19,6 +19,7 @@ contract IDO {
         bool participated; // deposit 100 USDT
         bool partner; // deposit 300 USDT
         bool collected; // get back partnerDeposit
+        bool tokensTransfered; // user got his YH
         uint256 amountOfReferals; // number of referals
         address addressPartner; // address of user who added this user 
     }
@@ -31,15 +32,18 @@ contract IDO {
     uint public constant partnerDeposit = 300 * 10**18; // 300 USDT in decimals
     uint public constant firstReward = 5 * 10*188; // 5 USDT in decimals
     uint public constant secondReward = 3 * 10**18; // 3 USDT in decimals
+    uint public constant amountYH = 10000 * 10**18; // bought amount in IDO
+    uint256 public startTimeIDO;
+    uint256 public endTimeIDO;
     address public owner;
+    bool public isIDOStarted;
 
-    // event Sold(address buyer, uint256 amount);
-    // event FirstUnlock(address buyer, uint256 lockedAmount, uint256 narfexPrice, uint256 unlockedAmount);
-    // event UnlockTokensToBuyers(address buyer, uint256 amount); //after 60 days
     event AddedToWhitelist(address buyer);
     event NewUser(address user);
     event NewPartner(address partner);
     event TransferToPartner(address partner, uint amount);
+    event DepositReturned(address partner);
+    event TokensTransfered(address user, uint amount);
 
     constructor (
         IERC20 _USDT,
@@ -69,10 +73,22 @@ contract IDO {
         _;
     }
 
+    /// @notice starting IDO
+    /// @param amountOfSeconds period of IDO in seconds (since point of time startTimeIDO)
+    function startIDO(uint256 amountOfSeconds) public onlyOwner {
+        require(!isIDOStarted, "IDO already started");
+
+        startTimeIDO = block.timestamp;
+        isIDOStarted = true;
+        endTimeIDO = startTimeIDO + amountOfSeconds;
+    }
+
     /// @notice let all users to participate in IDO
     /// @param _addressPartner address of partner (from referal url)
     function participate(address _addressPartner) public {
         address _msgSender = msg.sender;
+        require(isIDOStarted, "Wait for IDO starting");
+        require(block.timestamp <= endTimeIDO, "IDO ended");
         require(!isParticipated(_msgSender), "You can participate only once");
 
         uint256 _userDeposit;
@@ -80,6 +96,11 @@ contract IDO {
         if (_addressPartner > address(0)) { // Check first referal level
             _userDeposit = userDeposit - firstReward;
             ++user[_addressPartner].amountOfReferals;
+
+            if (user[_addressPartner].amountOfReferals == 10 && user[_addressPartner].partner) {
+                getBackDeposit(_addressPartner);
+            }
+
             USDT.transferFrom(_msgSender, _addressPartner, firstReward);
             emit TransferToPartner(_addressPartner, firstReward);
 
@@ -107,23 +128,41 @@ contract IDO {
         emit NewPartner(_msgSender);
     }
 
-    function getBackDeposit() public onlyPartner{
-        address _msgSender = msg.sender;
-        require(!isCollected(_msgSender), "You got your deposit back");
-        require(user[_msgSender].amountOfReferals >= 10, "You don't have 10 referals");
+    /// @notice transfering 300 USDT back
+    /// @param _userAddress address of partner for transfer
+    function getBackDeposit(address _userAddress) private{
+        require(!isCollected(_userAddress), "You got your deposit back");
         
-        USDT.transfer(_msgSender, partnerDeposit);
-
+        USDT.transfer(_userAddress, partnerDeposit);
+        emit DepositReturned(_userAddress);
     }
 
+    /// @notice only owner can withdraw all USDT amount 
     function withdrawDeposits() public onlyOwner{
+        require(block.timestamp > endTimeIDO, "IDO ended");
         USDT.transfer(owner, getBalanceUSDT());
     }
 
+    /// @notice only participated users can get YH amount amount 
+    function getYH() public onlyParicipated {
+        address _msgSender = msg.sender;
+        require(!user[_msgSender].tokensTransfered, "You can get YH tokens once");
+        require(getBalanseYH() >= amountYH, "Not enough YH balance");
+
+        user[_msgSender].tokensTransfered = true;
+        YH.transfer(_msgSender, amountYH);
+        emit TokensTransfered(_msgSender, amountYH);
+    }
+
+    /// @notice check YH balance in this contract
+    function getBalanseYH() public view returns(uint256) {
+        return YH.balanceOf(address(this));
+    }
+
+    /// @notice check USDT balance in this contract
     function getBalanceUSDT() public view returns(uint256) {
         return USDT.balanceOf(address(this));
     }
-
 
     /// @notice get second level referal
     /// @param _addressPartner address of second referal
@@ -156,6 +195,7 @@ contract IDO {
             bool, 
             bool,
             bool,
+            bool,
             uint256,
             address
         )
@@ -165,6 +205,7 @@ contract IDO {
             getUser.participated,
             getUser.partner,
             getUser.collected,
+            getUser.tokensTransfered,
             getUser.amountOfReferals,
             getUser.addressPartner
         );
